@@ -270,3 +270,106 @@ class TestPagination:
         assert second_page.status_code == 200
         assert [row["name"] for row in first_page.json()] == ["agent-c", "agent-b"]
         assert [row["name"] for row in second_page.json()] == ["agent-a"]
+
+
+class TestAdminConflicts:
+    """Admin conflict handling tests."""
+
+    @pytest.mark.asyncio
+    async def test_duplicate_agent_name_returns_conflict(self, client) -> None:
+        """Reject duplicate agent token names within the same org.
+
+        Parameters
+        ----------
+        client : AsyncClient
+            Test HTTP client.
+
+        Returns
+        -------
+        None
+            Asserts duplicate-name conflict handling.
+        """
+        bootstrap = await client.post(
+            "/v1/bootstrap",
+            json={"organization_name": "Acme", "admin_token_name": "root"},
+        )
+        admin_token = bootstrap.json()["admin_token"]["token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        first = await client.post(
+            "/v1/admin/agents",
+            headers=admin_headers,
+            json={"name": "worker"},
+        )
+        second = await client.post(
+            "/v1/admin/agents",
+            headers=admin_headers,
+            json={"name": "worker"},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert second.json()["detail"] == "Agent token name already exists"
+
+    @pytest.mark.asyncio
+    async def test_duplicate_policy_target_returns_conflict(self, client) -> None:
+        """Reject duplicate policies for the same service target.
+
+        Parameters
+        ----------
+        client : AsyncClient
+            Test HTTP client.
+
+        Returns
+        -------
+        None
+            Asserts duplicate-policy conflict handling.
+        """
+        bootstrap = await client.post(
+            "/v1/bootstrap",
+            json={"organization_name": "Acme", "admin_token_name": "root"},
+        )
+        admin_token = bootstrap.json()["admin_token"]["token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        service_response = await client.post(
+            "/v1/admin/services",
+            headers=admin_headers,
+            json={
+                "provider": "openai",
+                "name": "OpenAI",
+                "base_url": "https://api.openai.com/v1",
+            },
+        )
+        service_id = service_response.json()["id"]
+
+        first = await client.post(
+            "/v1/admin/policies",
+            headers=admin_headers,
+            json={
+                "service_id": service_id,
+                "max_checkouts_per_window": 5,
+                "checkout_window": "daily",
+                "max_active_checkouts": 1,
+                "max_ttl_seconds": 3600,
+                "enabled": True,
+            },
+        )
+        second = await client.post(
+            "/v1/admin/policies",
+            headers=admin_headers,
+            json={
+                "service_id": service_id,
+                "max_checkouts_per_window": 10,
+                "checkout_window": "daily",
+                "max_active_checkouts": 2,
+                "max_ttl_seconds": 1800,
+                "enabled": True,
+            },
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert (
+            second.json()["detail"] == "Policy already exists for this service target"
+        )

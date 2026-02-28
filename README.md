@@ -60,8 +60,18 @@ curl -X POST http://127.0.0.1:8000/v1/bootstrap \
   -d '{"organization_name":"Acme","admin_token_name":"root"}'
 ```
 
+Seed provider services and stored keys from local environment:
+
+```bash
+export AGENT_KEY_ADMIN_TOKEN="<bootstrap token>"
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+uv run python scripts/seed_providers.py
+```
+
 ## Notes
 
 - The app no longer creates tables automatically on startup.
 - Schema changes must go through Alembic migrations.
 - Tests still use isolated SQLite databases for speed.
+- The local seed script uses the admin HTTP API and is safe to rerun.

@@ -1,6 +1,7 @@
 """Admin routes."""
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -37,6 +38,231 @@ from app.services.vault import create_stored_key
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 
+async def _ensure_admin_token_name_available(
+    session: AsyncSession, *, org_id: UUID, name: str
+) -> None:
+    """Ensure an admin token name is unused within the organization.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    org_id : UUID
+        Organization identifier.
+    name : str
+        Requested token name.
+
+    Returns
+    -------
+    None
+        Raises on conflict.
+    """
+    result = await session.execute(
+        select(AdminToken.id).where(
+            AdminToken.org_id == org_id,
+            AdminToken.name == name,
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin token name already exists",
+        )
+
+
+async def _ensure_agent_token_name_available(
+    session: AsyncSession, *, org_id: UUID, name: str
+) -> None:
+    """Ensure an agent token name is unused within the organization.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    org_id : UUID
+        Organization identifier.
+    name : str
+        Requested token name.
+
+    Returns
+    -------
+    None
+        Raises on conflict.
+    """
+    result = await session.execute(
+        select(AgentToken.id).where(
+            AgentToken.org_id == org_id,
+            AgentToken.name == name,
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Agent token name already exists",
+        )
+
+
+async def _get_service_or_404(session: AsyncSession, service_id: UUID) -> Service:
+    """Return a service or raise 404.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    service_id : UUID
+        Service identifier.
+
+    Returns
+    -------
+    Service
+        Matching service row.
+    """
+    service = await session.get(Service, service_id)
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found",
+        )
+    return service
+
+
+async def _ensure_service_provider_available(
+    session: AsyncSession, *, provider: str
+) -> None:
+    """Ensure a provider slug is not already registered.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    provider : str
+        Provider slug.
+
+    Returns
+    -------
+    None
+        Raises on conflict.
+    """
+    result = await session.execute(
+        select(Service.id).where(Service.provider == provider)
+    )
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Service provider already exists",
+        )
+
+
+async def _ensure_stored_key_label_available(
+    session: AsyncSession, *, org_id: UUID, service_id: UUID, label: str
+) -> None:
+    """Ensure a stored-key label is unique per org/service pair.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    org_id : UUID
+        Organization identifier.
+    service_id : UUID
+        Service identifier.
+    label : str
+        Requested label.
+
+    Returns
+    -------
+    None
+        Raises on conflict.
+    """
+    result = await session.execute(
+        select(StoredKey.id).where(
+            StoredKey.org_id == org_id,
+            StoredKey.service_id == service_id,
+            StoredKey.label == label,
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stored key label already exists for service",
+        )
+
+
+async def _get_agent_token_for_org_or_404(
+    session: AsyncSession, *, org_id: UUID, agent_token_id: UUID
+) -> AgentToken:
+    """Return an agent token scoped to an organization or raise 404.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    org_id : UUID
+        Organization identifier.
+    agent_token_id : UUID
+        Agent token identifier.
+
+    Returns
+    -------
+    AgentToken
+        Matching agent token row.
+    """
+    result = await session.execute(
+        select(AgentToken).where(
+            AgentToken.id == agent_token_id,
+            AgentToken.org_id == org_id,
+        )
+    )
+    token = result.scalar_one_or_none()
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent token not found",
+        )
+    return token
+
+
+async def _ensure_policy_available(
+    session: AsyncSession,
+    *,
+    org_id: UUID,
+    service_id: UUID,
+    agent_token_id: UUID | None,
+) -> None:
+    """Ensure the org does not already have the same policy target.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    org_id : UUID
+        Organization identifier.
+    service_id : UUID
+        Service identifier.
+    agent_token_id : UUID | None
+        Optional scoped agent token identifier.
+
+    Returns
+    -------
+    None
+        Raises on conflict.
+    """
+    query = select(Policy.id).where(
+        Policy.org_id == org_id,
+        Policy.service_id == service_id,
+    )
+    if agent_token_id is None:
+        query = query.where(Policy.agent_token_id.is_(None))
+    else:
+        query = query.where(Policy.agent_token_id == agent_token_id)
+    result = await session.execute(query)
+    if result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Policy already exists for this service target",
+        )
+
+
 @router.post("/tokens", response_model=TokenResponse)
 async def create_admin_token(
     payload: AdminTokenCreateRequest,
@@ -44,6 +270,11 @@ async def create_admin_token(
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     """Create an additional admin token."""
+    await _ensure_admin_token_name_available(
+        session,
+        org_id=admin_token.org_id,
+        name=payload.name,
+    )
     plaintext = generate_plaintext_token("adm")
     token = AdminToken(
         org_id=admin_token.org_id,
@@ -72,6 +303,11 @@ async def create_agent_token(
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     """Create an agent token."""
+    await _ensure_agent_token_name_available(
+        session,
+        org_id=admin_token.org_id,
+        name=payload.name,
+    )
     plaintext = generate_plaintext_token("agt")
     token = AgentToken(
         org_id=admin_token.org_id,
@@ -153,6 +389,7 @@ async def create_service(
     session: AsyncSession = Depends(get_session),
 ) -> ServiceResponse:
     """Create a provider service."""
+    await _ensure_service_provider_available(session, provider=payload.provider)
     service = Service(
         provider=payload.provider,
         name=payload.name,
@@ -196,6 +433,13 @@ async def create_key(
     session: AsyncSession = Depends(get_session),
 ) -> StoredKeyResponse:
     """Store a provider key."""
+    await _get_service_or_404(session, payload.service_id)
+    await _ensure_stored_key_label_available(
+        session,
+        org_id=admin_token.org_id,
+        service_id=payload.service_id,
+        label=payload.label,
+    )
     stored_key = await create_stored_key(
         session,
         org_id=admin_token.org_id,
@@ -275,6 +519,19 @@ async def create_policy(
     session: AsyncSession = Depends(get_session),
 ) -> PolicyResponse:
     """Create a policy."""
+    await _get_service_or_404(session, payload.service_id)
+    if payload.agent_token_id is not None:
+        await _get_agent_token_for_org_or_404(
+            session,
+            org_id=admin_token.org_id,
+            agent_token_id=payload.agent_token_id,
+        )
+    await _ensure_policy_available(
+        session,
+        org_id=admin_token.org_id,
+        service_id=payload.service_id,
+        agent_token_id=payload.agent_token_id,
+    )
     policy = Policy(org_id=admin_token.org_id, **payload.model_dump())
     session.add(policy)
     await session.flush()

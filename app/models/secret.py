@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, LargeBinary, String
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -14,6 +14,14 @@ class StoredKey(TimestampMixin, Base):
     """Encrypted provider API key."""
 
     __tablename__ = "stored_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "org_id",
+            "service_id",
+            "label",
+            name="uq_stored_keys_org_service_label",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = uuid_column()
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"))
