@@ -104,6 +104,7 @@ async def list_agent_tokens(
     result = await session.execute(
         select(AgentToken)
         .where(AgentToken.org_id == admin_token.org_id)
+        .order_by(AgentToken.created_at.desc(), AgentToken.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -180,7 +181,10 @@ async def list_services(
 ) -> list[ServiceResponse]:
     """List services."""
     result = await session.execute(
-        select(Service).order_by(Service.provider.asc()).limit(limit).offset(offset)
+        select(Service)
+        .order_by(Service.provider.asc(), Service.id.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return [ServiceResponse.model_validate(row) for row in result.scalars().all()]
 
@@ -222,6 +226,7 @@ async def list_keys(
     result = await session.execute(
         select(StoredKey)
         .where(StoredKey.org_id == admin_token.org_id)
+        .order_by(StoredKey.created_at.desc(), StoredKey.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -330,6 +335,7 @@ async def list_policies(
     result = await session.execute(
         select(Policy)
         .where(Policy.org_id == admin_token.org_id)
+        .order_by(Policy.created_at.desc(), Policy.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -348,6 +354,7 @@ async def list_checkouts(
         select(Checkout)
         .join(AgentToken, AgentToken.id == Checkout.agent_token_id)
         .where(AgentToken.org_id == admin_token.org_id)
+        .order_by(Checkout.checked_out_at.desc(), Checkout.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -381,7 +388,7 @@ async def list_audit_events(
     result = await session.execute(
         select(AuditLog)
         .where(AuditLog.org_id == admin_token.org_id)
-        .order_by(AuditLog.timestamp.desc())
+        .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
         .limit(limit)
         .offset(offset)
     )

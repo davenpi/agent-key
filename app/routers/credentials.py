@@ -85,6 +85,7 @@ async def list_active_checkouts(
             Checkout.revoked_at.is_(None),
             Checkout.expires_at > now,
         )
+        .order_by(Checkout.checked_out_at.desc(), Checkout.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -118,7 +119,7 @@ async def list_visible_services(
             | (Policy.agent_token_id.is_(None)),
         )
         .distinct()
-        .order_by(Service.provider.asc())
+        .order_by(Service.provider.asc(), Service.id.asc())
         .limit(limit)
         .offset(offset)
     )

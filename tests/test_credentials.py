@@ -221,3 +221,52 @@ class TestPolicyLimits:
             json={"service": "openai", "ttl": 300},
         )
         assert second.status_code == 403
+
+
+class TestPagination:
+    """Pagination behavior tests."""
+
+    @pytest.mark.asyncio
+    async def test_agent_list_pagination_is_stably_ordered(self, client) -> None:
+        """Return paginated agent lists in deterministic newest-first order.
+
+        Parameters
+        ----------
+        client : AsyncClient
+            Test HTTP client.
+
+        Returns
+        -------
+        None
+            Asserts stable ordering across paginated requests.
+        """
+        bootstrap = await client.post(
+            "/v1/bootstrap",
+            json={"organization_name": "Acme", "admin_token_name": "root"},
+        )
+        admin_token = bootstrap.json()["admin_token"]["token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        created_names: list[str] = []
+        for name in ("agent-a", "agent-b", "agent-c"):
+            response = await client.post(
+                "/v1/admin/agents",
+                headers=admin_headers,
+                json={"name": name},
+            )
+            assert response.status_code == 200
+            created_names.append(response.json()["name"])
+
+        first_page = await client.get(
+            "/v1/admin/agents?limit=2&offset=0",
+            headers=admin_headers,
+        )
+        second_page = await client.get(
+            "/v1/admin/agents?limit=2&offset=2",
+            headers=admin_headers,
+        )
+
+        assert first_page.status_code == 200
+        assert second_page.status_code == 200
+        assert [row["name"] for row in first_page.json()] == ["agent-c", "agent-b"]
+        assert [row["name"] for row in second_page.json()] == ["agent-a"]
