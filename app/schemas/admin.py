@@ -31,7 +31,7 @@ class StoredKeyCreateRequest(BaseModel):
 
 
 class PolicyCreateRequest(BaseModel):
-    """Create or update a checkout policy."""
+    """Create a checkout policy."""
 
     service_id: UUID
     agent_token_id: UUID | None = None
@@ -40,6 +40,19 @@ class PolicyCreateRequest(BaseModel):
     max_active_checkouts: int = Field(default=1, ge=1)
     max_ttl_seconds: int = Field(default=3600, ge=60)
     enabled: bool = True
+
+
+class PolicyUpdateRequest(BaseModel):
+    """Update mutable policy fields.
+
+    ``service_id`` and ``agent_token_id`` are immutable after creation.
+    """
+
+    max_checkouts_per_window: int | None = Field(default=None, ge=1)
+    checkout_window: str | None = Field(default=None, pattern="^(daily|hourly)$")
+    max_active_checkouts: int | None = Field(default=None, ge=1)
+    max_ttl_seconds: int | None = Field(default=None, ge=60)
+    enabled: bool | None = None
 
 
 class ServiceResponse(APIModel):

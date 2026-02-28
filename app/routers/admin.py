@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,7 @@ from app.schemas.admin import (
     CheckoutAdminResponse,
     PolicyCreateRequest,
     PolicyResponse,
+    PolicyUpdateRequest,
     ServiceResponse,
     ServiceUpsertRequest,
     StoredKeyCreateRequest,
@@ -30,7 +31,7 @@ from app.schemas.common import MessageResponse, TokenResponse
 from app.services.audit import log_event
 from app.services.auth import require_admin_token
 from app.services.checkout import revoke_checkout
-from app.services.security import generate_plaintext_token, hash_token
+from app.services.security import generate_plaintext_token, hash_token, lookup_hash
 from app.services.vault import create_stored_key
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
@@ -48,6 +49,7 @@ async def create_admin_token(
         org_id=admin_token.org_id,
         name=payload.name,
         token_hash=hash_token(plaintext),
+        token_lookup=lookup_hash(plaintext),
     )
     session.add(token)
     await session.flush()
@@ -75,6 +77,7 @@ async def create_agent_token(
         org_id=admin_token.org_id,
         name=payload.name,
         token_hash=hash_token(plaintext),
+        token_lookup=lookup_hash(plaintext),
     )
     session.add(token)
     await session.flush()
@@ -94,10 +97,15 @@ async def create_agent_token(
 async def list_agent_tokens(
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[TokenResponse]:
     """List agent token metadata."""
     result = await session.execute(
-        select(AgentToken).where(AgentToken.org_id == admin_token.org_id)
+        select(AgentToken)
+        .where(AgentToken.org_id == admin_token.org_id)
+        .limit(limit)
+        .offset(offset)
     )
     return [
         TokenResponse(id=row.id, token="redacted", name=row.name)
@@ -167,9 +175,13 @@ async def create_service(
 async def list_services(
     _: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ServiceResponse]:
     """List services."""
-    result = await session.execute(select(Service).order_by(Service.provider.asc()))
+    result = await session.execute(
+        select(Service).order_by(Service.provider.asc()).limit(limit).offset(offset)
+    )
     return [ServiceResponse.model_validate(row) for row in result.scalars().all()]
 
 
@@ -203,10 +215,15 @@ async def create_key(
 async def list_keys(
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[StoredKeyResponse]:
     """List stored key metadata."""
     result = await session.execute(
-        select(StoredKey).where(StoredKey.org_id == admin_token.org_id)
+        select(StoredKey)
+        .where(StoredKey.org_id == admin_token.org_id)
+        .limit(limit)
+        .offset(offset)
     )
     return [StoredKeyResponse.model_validate(row) for row in result.scalars().all()]
 
@@ -271,7 +288,7 @@ async def create_policy(
 @router.put("/policies/{policy_id}", response_model=PolicyResponse)
 async def update_policy(
     policy_id: str,
-    payload: PolicyCreateRequest,
+    payload: PolicyUpdateRequest,
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
 ) -> PolicyResponse:
@@ -288,7 +305,7 @@ async def update_policy(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Policy not found",
         )
-    for field, value in payload.model_dump().items():
+    for field, value in payload.model_dump(exclude_none=True).items():
         setattr(policy, field, value)
     await log_event(
         session,
@@ -306,10 +323,15 @@ async def update_policy(
 async def list_policies(
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[PolicyResponse]:
     """List policies."""
     result = await session.execute(
-        select(Policy).where(Policy.org_id == admin_token.org_id)
+        select(Policy)
+        .where(Policy.org_id == admin_token.org_id)
+        .limit(limit)
+        .offset(offset)
     )
     return [PolicyResponse.model_validate(row) for row in result.scalars().all()]
 
@@ -318,12 +340,16 @@ async def list_policies(
 async def list_checkouts(
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[CheckoutAdminResponse]:
     """List checkouts for the organization."""
     result = await session.execute(
         select(Checkout)
         .join(AgentToken, AgentToken.id == Checkout.agent_token_id)
         .where(AgentToken.org_id == admin_token.org_id)
+        .limit(limit)
+        .offset(offset)
     )
     return [CheckoutAdminResponse.model_validate(row) for row in result.scalars().all()]
 
@@ -348,11 +374,15 @@ async def revoke_checkout_route(
 async def list_audit_events(
     admin_token: AdminToken = Depends(require_admin_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[AuditResponse]:
     """List audit events for the organization."""
     result = await session.execute(
         select(AuditLog)
         .where(AuditLog.org_id == admin_token.org_id)
         .order_by(AuditLog.timestamp.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return [AuditResponse.model_validate(row) for row in result.scalars().all()]

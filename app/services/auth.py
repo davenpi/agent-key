@@ -6,13 +6,13 @@ from typing import TypeVar
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import Select, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models.organization import Organization
 from app.models.token import AdminToken, AgentToken
-from app.services.security import verify_token
+from app.services.security import lookup_hash, verify_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
 TokenModel = TypeVar("TokenModel", AdminToken, AgentToken)
@@ -41,17 +41,21 @@ async def require_admin_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing token",
         )
-    admin_token = await _match_token(
-        session=session,
-        query=select(AdminToken).where(AdminToken.revoked_at.is_(None)),
-        raw_token=credentials.credentials,
+    raw = credentials.credentials
+    token_hash_lookup = lookup_hash(raw)
+    result = await session.execute(
+        select(AdminToken).where(
+            AdminToken.token_lookup == token_hash_lookup,
+            AdminToken.revoked_at.is_(None),
+        )
     )
-    if admin_token is None:
+    row = result.scalar_one_or_none()
+    if row is None or not verify_token(raw, row.token_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin token",
         )
-    return admin_token
+    return row
 
 
 async def require_agent_token(
@@ -77,17 +81,21 @@ async def require_agent_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing token",
         )
-    agent_token = await _match_token(
-        session=session,
-        query=select(AgentToken).where(AgentToken.revoked_at.is_(None)),
-        raw_token=credentials.credentials,
+    raw = credentials.credentials
+    token_hash_lookup = lookup_hash(raw)
+    result = await session.execute(
+        select(AgentToken).where(
+            AgentToken.token_lookup == token_hash_lookup,
+            AgentToken.revoked_at.is_(None),
+        )
     )
-    if agent_token is None:
+    row = result.scalar_one_or_none()
+    if row is None or not verify_token(raw, row.token_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid agent token",
         )
-    return agent_token
+    return row
 
 
 async def ensure_bootstrap_allowed(session: AsyncSession) -> None:
@@ -109,32 +117,3 @@ async def ensure_bootstrap_allowed(session: AsyncSession) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Bootstrap already completed",
         )
-
-
-async def _match_token(
-    session: AsyncSession,
-    query: Select[tuple[TokenModel]],
-    raw_token: str,
-) -> TokenModel | None:
-    """Match a raw token against hashed rows.
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active database session.
-    query : Select[tuple[T]]
-        Candidate token query.
-    raw_token : str
-        Raw bearer token.
-
-    Returns
-    -------
-    T | None
-        Matching token row if found.
-    """
-    result = await session.execute(query)
-    rows = result.scalars().all()
-    for row in rows:
-        if verify_token(raw_token, row.token_hash):
-            return row
-    return None

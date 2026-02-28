@@ -102,18 +102,36 @@ async def return_checkout(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Checkout not found",
         )
-    if checkout.returned_at is None:
-        checkout.returned_at = datetime.now(timezone.utc)
-        await session.flush()
-        await log_event(
-            session,
-            org_id=agent_token.org_id,
-            agent_token_id=agent_token.id,
-            action="key_returned",
-            resource_type="checkout",
-            resource_id=str(checkout.id),
-            metadata={},
+    if checkout.revoked_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Checkout has been revoked",
         )
+    now = datetime.now(timezone.utc)
+    expires = checkout.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Checkout has expired",
+        )
+    if checkout.returned_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Checkout already returned",
+        )
+    checkout.returned_at = now
+    await session.flush()
+    await log_event(
+        session,
+        org_id=agent_token.org_id,
+        agent_token_id=agent_token.id,
+        action="key_returned",
+        resource_type="checkout",
+        resource_id=str(checkout.id),
+        metadata={},
+    )
     return checkout
 
 

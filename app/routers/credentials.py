@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,16 +72,21 @@ async def return_credentials(
 async def list_active_checkouts(
     agent_token: AgentToken = Depends(require_agent_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ActiveCheckoutResponse]:
     """List active checkout records."""
     now = datetime.now(timezone.utc)
     result = await session.execute(
-        select(Checkout).where(
+        select(Checkout)
+        .where(
             Checkout.agent_token_id == agent_token.id,
             Checkout.returned_at.is_(None),
             Checkout.revoked_at.is_(None),
             Checkout.expires_at > now,
         )
+        .limit(limit)
+        .offset(offset)
     )
     return [
         ActiveCheckoutResponse.model_validate(row) for row in result.scalars().all()
@@ -95,6 +100,8 @@ services_router = APIRouter(prefix="/v1", tags=["credentials"])
 async def list_visible_services(
     agent_token: AgentToken = Depends(require_agent_token),
     session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ServiceListResponse]:
     """List services visible to the agent."""
     result = await session.execute(
@@ -112,5 +119,7 @@ async def list_visible_services(
         )
         .distinct()
         .order_by(Service.provider.asc())
+        .limit(limit)
+        .offset(offset)
     )
     return [ServiceListResponse.model_validate(row) for row in result.scalars().all()]

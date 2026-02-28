@@ -89,4 +89,5 @@ class EnvelopeEncryptor:
             return master_key_path.read_bytes()
         key = Fernet.generate_key()
         master_key_path.write_bytes(key)
+        master_key_path.chmod(0o600)
         return key

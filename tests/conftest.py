@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import get_settings
 from app.database import Base, get_session
 from app.main import app
+from app.services.vault import _encryptor
 
 
 @pytest.fixture(autouse=True)
@@ -31,9 +32,11 @@ def _clear_settings_cache(
         Applies environment overrides for each test.
     """
     get_settings.cache_clear()
+    _encryptor.cache_clear()
     monkeypatch.setenv("AGENT_KEY_MASTER_KEY_PATH", str(tmp_path / "master.key"))
     yield
     get_settings.cache_clear()
+    _encryptor.cache_clear()
 
 
 @pytest.fixture()

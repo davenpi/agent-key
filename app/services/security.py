@@ -1,5 +1,6 @@
 """Security helpers."""
 
+import hashlib
 from secrets import token_urlsafe
 
 from argon2 import PasswordHasher
@@ -22,6 +23,22 @@ def generate_plaintext_token(prefix: str) -> str:
         New opaque token.
     """
     return f"{prefix}_{token_urlsafe(24)}"
+
+
+def lookup_hash(token: str) -> str:
+    """Compute a fast, non-secret hash for DB lookup.
+
+    Parameters
+    ----------
+    token : str
+        Raw token.
+
+    Returns
+    -------
+    str
+        Hex-encoded SHA-256 digest.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def hash_token(token: str) -> str:

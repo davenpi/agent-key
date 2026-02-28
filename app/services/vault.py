@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,8 +12,9 @@ from app.crypto.envelope import EnvelopeEncryptor
 from app.models.secret import StoredKey
 
 
+@lru_cache(maxsize=1)
 def _encryptor() -> EnvelopeEncryptor:
-    """Return the current encryptor instance.
+    """Return the cached encryptor instance.
 
     Returns
     -------

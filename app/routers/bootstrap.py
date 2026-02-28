@@ -11,7 +11,7 @@ from app.schemas.bootstrap import BootstrapRequest, BootstrapResponse
 from app.schemas.common import TokenResponse
 from app.services.audit import log_event
 from app.services.auth import ensure_bootstrap_allowed
-from app.services.security import generate_plaintext_token, hash_token
+from app.services.security import generate_plaintext_token, hash_token, lookup_hash
 
 router = APIRouter(prefix="/v1", tags=["bootstrap"])
 
@@ -51,6 +51,7 @@ async def bootstrap(
         org_id=organization.id,
         name=payload.admin_token_name,
         token_hash=hash_token(plaintext),
+        token_lookup=lookup_hash(plaintext),
     )
     session.add(admin_token)
     await session.flush()
