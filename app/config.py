@@ -27,7 +27,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT_KEY_", extra="ignore")
 
     app_name: str = "Agent Key"
-    database_url: str = "sqlite+aiosqlite:///./agent_key.db"
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/agent_key"
+    )
     master_key_path: Path = Field(default=Path(".agent_key_master.key"))
     default_checkout_ttl_seconds: int = 3600
     bootstrap_enabled: bool = True
