@@ -69,6 +69,27 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 uv run python scripts/seed_providers.py
 ```
 
+## Python SDK
+
+The repo now includes a small Python SDK in the `agent_key` package.
+
+Basic usage:
+
+```python
+from agent_key import AgentKeyClient
+
+with AgentKeyClient.from_env() as client:
+    with client.checkout("openai", ttl=300) as credential:
+        print(credential.api_key)
+```
+
+Environment:
+
+- `AGENT_KEY_BASE_URL` defaults to `http://127.0.0.1:8000`
+- `AGENT_KEY_AGENT_TOKEN` is required
+
+The checkout context manager automatically returns the checkout on exit.
+
 ## Notes
 
 - The app no longer creates tables automatically on startup.
