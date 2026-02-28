@@ -1,0 +1,3 @@
+- When adding new features, write class-based tests with `pytest`.
+- Use numpy-style docstrings.
+- Use type hints on all function signatures.
